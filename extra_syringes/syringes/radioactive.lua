@@ -113,9 +113,9 @@ local aura = nil
         return multiplier
     end
 
-    function RadioActiveAura:DropBlackHeart()
+    function RadioActiveAura:DropBlackHeart(entity)
         local chance = self:GetBlackHeartChance()
-        if(rng:RandomFloat() >= chance) then      
+        if(rng:RandomFloat() <= chance) then      
             Isaac.Spawn(
                 EntityType.ENTITY_PICKUP,
                 PickupVariant.PICKUP_HEART,
@@ -130,14 +130,14 @@ local aura = nil
         local distance = entity.Position:Distance(self.parent.Position)
         if(distance <= self.radius) then
 
-            self:DropBlackHeart()
+            self:DropBlackHeart(entity)
             Isaac.Spawn(
                 EntityType.ENTITY_EFFECT, 
                 toxicFireVariant, 
                 0, 
-                position, 
+                entity.Position, 
                 Vector(0, 0), 
-                self.spawner):ToEffect()
+                self.parent):ToEffect()
         end
     end
 
@@ -167,15 +167,16 @@ local aura = nil
         {
             [1] =
             {
-                Function = function(_)
+                Function = function()
                     aura:BurnEnemies()
                     aura:UpdateState()
                 end,
-                Callback = ModCallbacks.MC_POST_UPDATE
+                Callback = ModCallbacks.MC_POST_EFFECT_UPDATE,
+                Arg1 = radioactiveAuraVariant
             },
             [2] = 
             {
-                Function = function(_)
+                Function = function()
                     aura = RadioActiveAura:new(player)
                     aura:Spawn(true)
                 end,
