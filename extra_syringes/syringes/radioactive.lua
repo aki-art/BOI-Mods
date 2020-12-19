@@ -1,119 +1,200 @@
 local mod = extraSyringes
 local rng = RNG()
+local game = Game()
 
-RadioActiveHalo = Isaac.GetEntityVariantByName("Radioactive Aura")
+local toxicFireVariant = Isaac.GetEntityVariantByName("Toxic Fire")
+local radioactiveAuraVariant = Isaac.GetEntityVariantByName("Radioactive Aura")
 
-local RadioActive = {
-    RADIUS = 100,
-    DAMAGE_MULTIPLIER = 2,
-    DAMAGE_FRAME = 0.5 * 30,
-    BLACKHEART_CHANCE = 0.05,
-    SERPENTS_KISS_MULTIPLIER = 1.5
-}
+local aura = nil
 
-RadiactiveHaloEntity = nil
-RadiactiveHaloCounter = 0
+-- Radioactive Aura
 
-local function GetSerpentsKissMultiplier(player)
-    return player:HasCollectible(CollectibleType.COLLECTIBLE_SERPENTS_KISS) and RadioActive.SERPENTS_KISS_MULTIPLIER or 1
-end
+    local RadioActiveAura = {
+        damageMultiplier = 2,
+        radius = 100,
+        damageTick = 0.5 * 30,
+        bossBurnDuration = 2 * 30,
+        entity = nil,
+        parent = nil,
+        flags = EntityFlag.FLAG_PERSISTENT | EntityFlag.FLAG_DONT_OVERWRITE,
+        sprite = nil,
+        endOfLifeTime = false,
+        disappearAt = 8,
+        disappearing = false
+    }
 
-local function GetLuckMultiplier(player)
-    if player.Luck <= 0 then
-        return 1
+    function RadioActiveAura:new(parent)
+        self.parent = parent
+        setmetatable({}, RadioActiveAura)
+
+        return RadioActiveAura
     end
-    return math.min(player.Luck, 10) / 10 + 1
-end
 
-local function ApplyRadioactiveEffects(player, targets)
+    function RadioActiveAura:Spawn(skipAnimation)
+        if (self.entity ~= nil) then
+            self.entity:Remove()
+        end
 
-    for key, entity in pairs(targets) do
-        if entity:IsActiveEnemy() and entity.FrameCount > 0 then
+        assert(self.parent, "Radioactive Aura parent cannot be null.")
+        
+        local entity = Isaac.Spawn(
+            EntityType.ENTITY_EFFECT, 
+            radioactiveAuraVariant, 
+            0, 
+            self.parent.Position, 
+            Vector(0, 0), 
+            player):ToEffect()
+        
+        entity:AddEntityFlags(self.flags)
+        entity:FollowParent(self.parent)
+        self.entity = entity
 
-            local damage = player.Damage * RadioActive.DAMAGE_MULTIPLIER * RadiactiveHaloCounter
-            entity:AddBurn(EntityRef(player), RadioActive.DAMAGE_FRAME, damage)
+        self.sprite = entity:GetSprite()
+        if (not skipAnimation) then
+            self.sprite:Play("Appear")
+        end
 
-            blackHeartChance = RadioActive.BLACKHEART_CHANCE * GetSerpentsKissMultiplier(player) * GetLuckMultiplier(player)
-            if (rng:RandomFloat() < blackHeartChance) then
-                entity:AddEntityFlags(EntityFlag.FLAG_SPAWN_BLACK_HP)
+        self.endOfLifeTime = false
+        self.disappearing = false
+    end
+
+    function RadioActiveAura:UpdateState()
+        if(self.disappearing) then return end
+
+        local remaining = M_SYR.GetDuration(self.parent, mod.Syringes.Radioactive)
+        self.endOfLifeTime = remaining <= self.disappearAt
+
+        if(self.endOfLifeTime) then
+            self.sprite:Play("Disappear")
+            self.disappearing = true
+
+        elseif(self.sprite:IsFinished("Appear")) then
+            self.sprite:Play("Idle")
+        end
+    end
+
+    function RadioActiveAura:Hide()
+        if(self.sprite ~= nil) then
+            self.sprite:Play("Disappear")
+        end
+    end
+
+    function RadioActiveAura:Destroy()
+        self.entity:Remove()
+        self = nil
+    end
+
+    function RadioActiveAura:OnCollision(entity)
+        if entity:IsActiveEnemy() then
+            local damage = self.parent.Damage * self.damageMultiplier
+            entity:AddBurn(EntityRef(self.parent), self.damageTick, damage)
+        end
+    end
+
+    function RadioActiveAura:BurnEnemies()  
+        if(game:GetFrameCount() % self.damageTick == 0) then
+            local entities = Isaac.FindInRadius(
+                self.parent.Position, 
+                self.radius, 
+                EntityPartition.ENEMY)
+
+            for k, entity in ipairs(entities) do
+                self:OnCollision(entity)
             end
         end
     end
-end
 
--- TODO: custom fire entity
-local function SpawnToxicFire(player, entity)
-    local entityPos = entity.Position
-    if player.Position:Distance(entityPos) < RadioActive.RADIUS then
-        fire = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.HOT_BOMB_FIRE, 0, entityPos, Vector(0, 0), player):ToEffect();
+    function RadioActiveAura:GetBlackHeartChance()
+        local hasSerpentsKiss = self.parent:HasCollectible(CollectibleType.COLLECTIBLE_SERPENTS_KISS)
+        local hasDemonTail = false
+
+        local multiplier = 0
+        multiplier = hasSerpentsKiss and multiplier + 0.1 or multiplier
+        multiplier = hasDemonTail and multiplier + 0.1 or multiplier
+
+        return multiplier
     end
-end
 
-local function RemoveRadioActiveHalo()
-    RadiactiveHaloEntity:Remove()
-    RadiactiveHaloEntity = nil
-end
-
-local function SpawnRadioActiveHalo(player)
-    if (RadiactiveHaloEntity == nil) then
-        RadiactiveHaloEntity = Isaac.Spawn(EntityType.ENTITY_EFFECT, RadioActiveHalo, 0, player.Position, Vector(0, 0), player):ToEffect();
-        RadiactiveHaloEntity:FollowParent(player)
-        RadiactiveHaloEntity:AddEntityFlags(EntityFlag.FLAG_PERSISTENT)
+    function RadioActiveAura:DropBlackHeart()
+        local chance = self:GetBlackHeartChance()
+        if(rng:RandomFloat() >= chance) then      
+            Isaac.Spawn(
+                EntityType.ENTITY_PICKUP,
+                PickupVariant.PICKUP_HEART,
+                HeartSubType.HEART_BLACK,
+                entity.Position, 
+                Vector(0, 0), 
+                self.parent)
+        end
     end
-end
 
-M_SYR.EFF_TAB[mod.Syringes.Radioactive] = 
-{
-    ID = mod.Syringes.Radioactive,
-    Type = M_SYR.TYPES.Negative,
-    Name = "Radioactive",
-    Description = "",
-    EIDDescription = "",
-    Duration = 450,
-    Counterpart = M_SYR.TOT_SYR.DPSDampener,
-    Weight = 1,
+    function RadioActiveAura:OnKill(entity)
+        local distance = entity.Position:Distance(self.parent.Position)
+        if(distance <= self.radius) then
 
-    Effect = 
+            self:DropBlackHeart()
+            Isaac.Spawn(
+                EntityType.ENTITY_EFFECT, 
+                toxicFireVariant, 
+                0, 
+                position, 
+                Vector(0, 0), 
+                self.spawner):ToEffect()
+        end
+    end
+
+-- Syringe
+    M_SYR.EFF_TAB[mod.Syringes.Radioactive] =
     {
-        [1] = 
-        {
-            Function = function(_)
-                local player = M_SYR.GetPlayerUsingActive()
-                if mod:IsCorrectSyringe(player, mod.Syringes.Radioactive) and mod:IsOnFrame(RadioActive.DAMAGE_FRAME) then
-                    local targets = Isaac.FindInRadius(player.Position, RadioActive.RADIUS, EntityPartition.ENEMY)
-                    ApplyRadioactiveEffects(player, targets)
-                end
-            end,
+        ID = mod.Syringes.Radioactive,
+        Type = M_SYR.TYPES.Positive,
+        Name = "Radioactive",
+        Description = "desc.",
+        EIDDescription = "eid desc",
+        Duration = 5 * 30,
+        Counterpart =  M_SYR.TOT_SYR.DPSDampener,
+        Weight = 1,
 
-            Callback = ModCallbacks.MC_POST_UPDATE
+        OnUse = function(idx)
+            local player = M_SYR.GetPlayerUsingActive()
+            mod:PositiveFeedback(player)
+
+            if(aura == nil) then
+                aura = RadioActiveAura:new(player)
+            end
+            aura:Spawn()
+        end,
+
+        Effect =
+        {
+            [1] =
+            {
+                Function = function(_)
+                    aura:BurnEnemies()
+                    aura:UpdateState()
+                end,
+                Callback = ModCallbacks.MC_POST_UPDATE
+            },
+            [2] = 
+            {
+                Function = function(_)
+                    aura = RadioActiveAura:new(player)
+                    aura:Spawn(true)
+                end,
+                Callback = ModCallbacks.MC_POST_GAME_STARTED
+            },
+            [3] = 
+            {
+                Function = function(_, entity)
+                    aura:OnKill(entity)
+                end,
+                Callback = ModCallbacks.MC_POST_NPC_DEATH
+            },
         },
-        [2] = 
-        {
-            Function = function(_, entity)
-                local player = M_SYR.GetPlayerUsingActive()
-                SpawnToxicFire(player, entity)
-            end,
-            Callback = ModCallbacks.MC_POST_NPC_DEATH
-        },
-        [3] = 
-        {
-            Function = function(_)
 
-            end,
-            Callback = ModCallbacks.MC_POST_NPC_DEATH
-        }
-    },
-
-    OnUse = function(idx)
-
-        local player = M_SYR.GetPlayerUsingActive()
-        mod:PositiveFeedback(player)
-        SpawnRadioActiveHalo(player)
-        RadiactiveHaloCounter = RadiactiveHaloCounter + 1
-    end,
-
-    Post = function(player)
-        RadiactiveHaloCounter = RadiactiveHaloCounter - 1
-        RemoveRadioActiveHalo()
-    end
-}
+        Post = function(player)
+            if(aura) then
+                aura:Destroy()
+            end
+        end
+    }

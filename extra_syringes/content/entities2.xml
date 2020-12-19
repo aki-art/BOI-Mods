@@ -1,5 +1,8 @@
 <entities anm2root="gfx/" version="5">
     <entity anm2path="effects/radiactove_aura.anm2" name="Radioactive Aura" id="1000" variant="451000" baseHP="0" boss="0" champion="0" collisionDamage="0" collisionMass="0" collisionRadius="0" friction="1" numGridCollisionPoints="16" shadowSize="0" stageHP="0">
         <gibs amount="0" blood="0" bone="0" eye="0" gut="0" large="0" />
+    </entity>    
+    <entity anm2path="effects/effect_green_fire.anm2" name="Toxic Fire" id="1000" variant="451001" baseHP="5" boss="0" champion="0" collisionDamage="0" collisionMass="0" collisionRadius="4" friction="1" numGridCollisionPoints="4" shadowSize="0" stageHP="0">
+        <gibs amount="0" blood="0" bone="0" eye="0" gut="0" large="0" />
     </entity>
 </entities>

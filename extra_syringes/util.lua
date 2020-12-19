@@ -1,9 +1,9 @@
+local mod = extraSyringes
 local game = Game()
 local sfx = SFXManager()
-local mod = extraSyringes
 
 function mod:IsCorrectSyringe(player, syringe)
-    syringeID = M_SYR.EFF_TAB[syringe].ID
+    local syringeID = M_SYR.EFF_TAB[syringe].ID
     return M_SYR.CheckForEffect(player, syringeID)
 end
 
