@@ -25,8 +25,6 @@ local aura = nil
 
     function RadioActiveAura:new(parent)
         self.parent = parent
-        setmetatable({}, RadioActiveAura)
-
         return RadioActiveAura
     end
 
