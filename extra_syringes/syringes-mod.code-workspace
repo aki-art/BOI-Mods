@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			// for auto-completion
+			"path": "..\\..\\..\\..\\..\\..\\Program Files (x86)\\Steam\\steamapps\\common\\The Binding of Isaac Rebirth\\resources\\scripts"
+		}
+	],
+	"settings": {
+		"inline-bookmarks.view.showVisibleFilesOnly": false
+	}
+}
