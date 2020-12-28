@@ -138,6 +138,7 @@ local SyringeLookup = {
 
 -- #region Utilities
 
+
 local function GetSyringeRNG(player, syringeID)        
     local cardID = SyringeLookup.SyringeIDs[syringeID].Card
     return player:GetCardRNG(cardID)
@@ -196,23 +197,65 @@ local Debug = {
             print(tostring(msg))
             Isaac.DebugString(msg)
         end
-    end,
-
-    ReplaceSyringePool = function()
-        local i = 1
-        for key, value in pairs(SyringeIds) do
-            local newSyringe = M_SYR.EFF_TAB[value]
-            local color = M_SYR.CurrentRunPool[i].Color
-
-            M_SYR.CurrentIDPool[color].Syringe = newSyringe.ID
-            M_SYR.CurrentRunPool[i].Syringe = newSyringe.ID
-            
-            M_SYR.UpdateDescription(color, newSyringe.EIDDescription, newSyringe.Name)
-            table.insert(testSyringes, color)
-            i = i + 1
-        end
     end
 }
+
+-- todo: flush on new game
+
+local LightSource = {
+    lights = {},
+    counter = 0
+}
+
+function LightSource.Remove(entity)
+
+    if not entity then return end
+
+    local lightIndex = entity:GetData().RFP_LightSourceIdx
+
+    if lightIndex and LightSource.lights[lightIndex] then
+        LightSource.lights[lightIndex]:Remove()
+        entity:GetData().RFP_LightSourceIdx = false
+    end
+end
+
+function LightSource.Add(entityParent, R, G, B, intensity --[[optional]], size --[[optional]], offset --[[optional]], permanent --[[optional]])
+    
+    -- entity
+    local light = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.BRIMSTONE_BALL, 0, entityParent.Position, Vector2.zero, nil):ToEffect()
+
+    -- parent
+    light.Parent = entityParent
+    light.ParentOffset = positionOffset or Vector2.zero
+    light:FollowParent(entityParent)
+    
+    -- visuals
+    local sprite = light:GetSprite()
+
+    intensity = intensity * 10 or 10
+    local color = Color(1, 1, 1, 1, 0, 0, 0)
+    color:SetColorize(R * intensity, G * intensity, B * intensity, 1)
+    sprite.Color = color
+    
+    sprite:ReplaceSpritesheet(0, "gfx/transparent.png")
+    sprite:LoadGraphics()
+
+    -- size
+    light:SetSize(10 * size, Vector2.one, 0)
+
+    -- flags
+    light:ClearEntityFlags(1 >> 38 - 1)
+    if permanent then
+        light:AddEntityFlags(EntityFlag.FLAG_PERSISTENT)
+    end
+
+    -- lights table
+    LightSource.counter = LightSource.counter + 1
+    LightSource.lights[LightSource.counter] = light
+    entityParent:GetData().RFP_LightSourceIdx = LightSource.counter
+
+    return light
+end
 
 -- Clones Syringes data to a lookup table
 local function PopulateSyringeLookup()
@@ -252,15 +295,19 @@ local ToxicFire =
     radius = 20,
     damage = 1,
     poisonDamage = 1,
-    poisonDuration = 60
+    poisonDuration = 60,
+    lightSize = 2,
+    maxHP = 8
 }
 
-mod:AddCallback(ModCallbacks.MC_POST_EFFECT_INIT, function(_, effect)
-    effect.SpriteScale = Vector2.one * 0.7
-end, mod.EntityVariants.ToxicFire)
+function ToxicFire.Spawn(position, spawner)
+    local fire = Isaac.Spawn(EntityType.ENTITY_EFFECT, mod.EntityVariants.TOXIC_FIRE, 0, position, Vector2.zero, spawner):ToEffect()
+    fire.SpriteScale = Vector2.one * 0.7
+    LightSource.Add(fire, 0, 1, 0, 0.7, ToxicFire.lightSize)
+end
 
 mod:AddCallback(ModCallbacks.MC_POST_EFFECT_UPDATE, function(_, effect)
-    if(effect:IsFrame(ToxicFire.damageTick, 0)) then
+     if(effect.Variant == mod.EntityVariants.TOXIC_FIRE and effect:IsFrame(ToxicFire.damageTick, 0)) then
         
         local entities = Isaac.FindInRadius(
             effect.Position, 
@@ -274,16 +321,18 @@ mod:AddCallback(ModCallbacks.MC_POST_EFFECT_UPDATE, function(_, effect)
                 entity:TakeDamage(ToxicFire.damage, DamageFlag.DAMAGE_FIRE, EntityRef(fire), 0)
                 entity:AddPoison( EntityRef(fire), ToxicFire.poisonDuration, ToxicFire.poisonDamage)
                     
-                -- diminish and disappear
-                effect:TakeDamage(1, DamageFlag.DAMAGE_FIRE, EntityRef(entity), 0)
+                sfx:Play(SoundEffect.SOUND_FIREDEATH_HISS, 1, 0, false, 1)
 
-                local height = effect.SpriteScale.Y
-                effect.SpriteScale = Vector2.one * (height - 0.1)
-                
-                if(height > 0.1) then
-                    sfx:Play(SoundEffect.SOUND_FIREDEATH_HISS, 1, 0, false, 1)
+                effect.HitPoints = effect.HitPoints - 1
+
+                if effect.HitPoints < 0.1 then
+                    LightSource.Remove(effect)
+                    effect:Remove()
                 else
-                        effect:Remove()
+                    local hp = effect.HitPoints / ToxicFire.maxHP
+                    local lightSize = 10 * hp * ToxicFire.lightSize
+                    effect:SetSize(10 * hp * ToxicFire.lightSize, Vector2.one, 0)
+                    effect.SpriteScale = Vector2.one * hp
                 end
             end
         end
@@ -312,8 +361,8 @@ function RadioActiveAura.Spawn(player)
     aura:GetData().RFP_Appearing = true
     aura:GetData().RFP_Disappearing = false
 
+    LightSource.Add(aura, 0, 1, 0, 0.7, 3, Vector2.zero, true )
     RadioActiveAura.entity = aura
-
 end
 
 function RadioActiveAura.SetEntitiesOnFire(player, tick)
@@ -408,23 +457,19 @@ function RadioActiveAura.OnEntityDeath(_, entity)
                 player)
         end
 
-        -- spawn a green fire
-        Isaac.Spawn(
-            EntityType.ENTITY_EFFECT, 
-            mod.EntityVariants.TOXIC_FIRE, 
-            0, 
-            entity.Position, 
-            Vector2.zero, 
-            player):ToEffect()
+        ToxicFire.Spawn(entity.Position, player)
     end
 end
 
-RadioActiveAura.Destroy = function(entity)
-    RadioActiveAura.entity:Remove()
-    RadioActiveAura.entity = nil
+RadioActiveAura.Destroy = function()
+    
+    if RadioActiveAura.entity then
+        LightSource.Remove(RadioActiveAura.entity)
+        RadioActiveAura.entity:Remove()
+        RadioActiveAura.entity = nil
+    end
 end       
 
--- manage this better
 
 -- #endentity
 
@@ -675,7 +720,6 @@ local function ChargeKinetic(_, player)
                         local laser = EntityLaser.ShootAngle(LaserVariant.TECH, player.Position, math.random() * 359, 5, Vector2.zero, player)
                         laser:GetSprite().Color = color
                     end
-
                 end
             end
         end
@@ -1069,10 +1113,10 @@ M_SYR.EFF_TAB[SyringeIds.Morphine] = {
 M_SYR.EFF_TAB[SyringeIds.RadioActive] = {
 	ID = SyringeIds.RadioActive,
 	Type = M_SYR.TYPES.Positive,
-	Name = "RadioActive",
-	Description = "RadioActive",
-	EIDDescription = "\1 Burning #\1 x0.7 Tear Delay",
-	Duration = ToFrames(10),
+	Name = "Radio Active",
+	Description = "Radio Active",
+	EIDDescription = "\1 Burning aura\1Small chance of black hearts\1 Enemies leave toxic flames",
+	Duration = ToFrames(3),
 	Counterpart = M_SYR.TOT_SYR.DPSDampener,
 	
 	Effect = {
@@ -1148,7 +1192,6 @@ M_SYR.EFF_TAB[SyringeIds.RedBull] = {
 
 -- #region testing and debug and random stuff, delete before release
 
-local testSyringes = {}
 
 mod:AddCallback(ModCallbacks.MC_EXECUTE_CMD, function(_, str, params)
     if str == "heart" then
@@ -1156,24 +1199,18 @@ mod:AddCallback(ModCallbacks.MC_EXECUTE_CMD, function(_, str, params)
         print(tostring(res) .. " " .. val)
     end
 
-    if str == "syr" then
-
-        Debug.ReplaceSyringePool()
-
-        Isaac.ExecuteCommand("syringes.revealall")
-        Isaac.ExecuteCommand("debug 8")
-        Isaac.ExecuteCommand("debug 3")
-
-        for _, color in ipairs(testSyringes) do
-            Isaac.ExecuteCommand("spawn 5.300." .. color)
-        end
-
+    if str == "darkness" then
+        game:GetLevel():AddCurse(LevelCurse.CURSE_OF_DARKNESS)
     end
 end)
         
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
     if game:GetFrameCount() % 15 == 0 then
         -- HeartShield.Spawn(Vector(160, 100))
+    end
+
+    for key, value in pairs(SyringeIds) do
+        table.insert(M_SYR.TOT_SYR, value)
     end
 end)
 
