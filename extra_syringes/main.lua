@@ -33,6 +33,7 @@ local LaserVariant = {
 -- #region Constants
 
 local Colors = {
+    WHITE = Color(1, 1, 1, 1, 0, 0, 0),
     RED = Color(1, 0, 0, 1, 1, 1, 1),
     ELECTRIC_BLUE = Color(1, 1, 1, 1, 0, 0, 0):SetColorize(1, 2, 4, 1)
 }
@@ -82,9 +83,9 @@ local SyringeIds = {
     Morphine = M_SYR.GetSyringeIdByName("Morphine"),
     RadioActive = M_SYR.GetSyringeIdByName("Radioactive"),
     -- RatPoison = M_SYR.GetSyringeIdByName("Rat Poison"),
-    RedBull = M_SYR.GetSyringeIdByName("Red Bull")
+    RedBull = M_SYR.GetSyringeIdByName("Red Bull"),
+    SalineSolution = M_SYR.GetSyringeIdByName("SalineSolution")
 }
-
 
 -- dictionary of default modifier functions
 local Stats =
@@ -115,7 +116,6 @@ local Stats =
     }
 }
 
-
 local SyringeLookup = {
     -- CurrentRunPool
     CurrentRunIdx = {
@@ -138,8 +138,9 @@ local SyringeLookup = {
 
 -- #region Utilities
 
+local Util = {}
 
-local function GetSyringeRNG(player, syringeID)        
+function Util.GetSyringeRNG(player, syringeID)        
     local cardID = SyringeLookup.SyringeIDs[syringeID].Card
     return player:GetCardRNG(cardID)
 end
@@ -173,7 +174,6 @@ local function Contains(table, value)
     return false
 end
 
-
 local Vector2 = {
 
     zero = Vector(0, 0),
@@ -181,16 +181,12 @@ local Vector2 = {
 
     RandomInUnitCircle = function()
         local angle = math.random(0, 359)
-        local vec = Vector(0, 1)
-        vec = vec:Rotated(angle)
-
-        return vec
+        return Vector(0, 1):Rotated(angle)
     end
 }
 
 local Debug = {
 
-    -- logs that only appear if debug is set to true
     Log = function(message)
         if debug then 
             local msg = string.format("[%s] [RFP] %s", Isaac.GetFrameCount(), tostring(message))
@@ -233,7 +229,7 @@ function LightSource.Add(entityParent, R, G, B, intensity --[[optional]], size -
     local sprite = light:GetSprite()
 
     intensity = intensity * 10 or 10
-    local color = Color(1, 1, 1, 1, 0, 0, 0)
+    local color = Colors.WHITE
     color:SetColorize(R * intensity, G * intensity, B * intensity, 1)
     sprite.Color = color
     
@@ -444,7 +440,7 @@ function RadioActiveAura.OnEntityDeath(_, entity)
 
         local heartChance = RadioActiveAura.GetBlackHeartChance(player)
 
-        local syringeRNG = GetSyringeRNG(player, SyringeIds.RadioActive)
+        local syringeRNG = Util.GetSyringeRNG(player, SyringeIds.RadioActive)
 
         -- spawn black heart
         if syringeRNG:RandomFloat() < heartChance then
@@ -702,7 +698,7 @@ local function ChargeKinetic(_, player)
         if player:IsFrame(6, 0) and activeItemID and
             player:GetRecentMovementVector():Length() > 0 then
 
-            local syringeRNG = GetSyringeRNG(player, SyringeIds.BatteryAcid)
+            local syringeRNG = Util.GetSyringeRNG(player, SyringeIds.BatteryAcid)
             local currentCharge = player:GetActiveCharge()
             local activeItem = Isaac.GetItemConfig():GetCollectible(activeItemID)
 
@@ -713,7 +709,7 @@ local function ChargeKinetic(_, player)
             else 
                 if syringeRNG:RandomFloat() < 0.3 then
 
-                    local color = Color(1, 1, 1, 1, 0, 0, 0)
+                    local color = Colors.WHITE
                     color:SetColorize(2, 3, 4, 1)
 
                     for i = 1, syringeRNG:RandomInt(4) + 1 do
@@ -1190,6 +1186,46 @@ M_SYR.EFF_TAB[SyringeIds.RedBull] = {
 
 -- #endsyringe
 
+-- #syringe SalineSolution
+
+local function ConfigureSalineTear(_, tear)
+    tear.Scale = tear.Scale * 1.45
+    tear.TearFlags = tear.TearFlags | TearFlags.TEAR_QUADSPLIT
+end
+
+local function OnSalineTearRemoved(_, tear)
+    local creep = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.PLAYER_CREEP_HOLYWATER_TRAIL , 0, tear.Position, Vector2.zero, tear.Parent):ToEffect()
+    creep.Scale = tear.Scale
+end
+
+M_SYR.EFF_TAB[SyringeIds.SalineSolution] = {
+    ID = SyringeIds.SalineSolution,
+    Type = M_SYR.TYPES.Positive,
+    Name = "Saline Solution",
+    Description = "Saline Solution",
+    EIDDescription = "Tears Up#Tear size up#Tears explode#Tears leave blue creep",
+    Duration = ToFrames(10),
+    Counterpart = SyringeIds.RedBull,
+
+    Effect = {
+        Effect(Stat.FIRERATE, 1.4),
+        {
+            Function = ConfigureSalineTear,
+            Callback = ModCallbacks.MC_POST_FIRE_TEAR
+        },
+        {
+            Function = OnSalineTearRemoved,
+            Callback = ModCallbacks.MC_POST_ENTITY_REMOVE,
+            Arg1 = EntityType.ENTITY_TEAR
+        }
+    },
+
+    OnUse = function(idx) 
+        React(M_SYR.TYPES.Positive) 
+    end
+}
+
+-- #endsyringe
 -- #region testing and debug and random stuff, delete before release
 
 
